@@ -232,8 +232,8 @@ function fuzzyTextFilterFn(rows, id, filterValue) {
 // Let the table remove the filter if the string is empty
 fuzzyTextFilterFn.autoRemove = val => !val
 
-// Be sure to pass our updateMyData and the disablePageResetOnDataChange option
-function Table({ columns, data, updateMyData, disablePageResetOnDataChange }) {
+// Be sure to pass our updateMyData and the skipPageReset option
+function Table({ columns, data, updateMyData, skipPageReset }) {
   const filterTypes = React.useMemo(
     () => ({
       // Add a new fuzzyTextFilterFn filter type.
@@ -282,14 +282,7 @@ function Table({ columns, data, updateMyData, disablePageResetOnDataChange }) {
     nextPage,
     previousPage,
     setPageSize,
-    state: {
-      pageIndex,
-      pageSize,
-      groupBy,
-      expanded,
-      filters,
-      selectedRowPaths,
-    },
+    state: { pageIndex, pageSize, groupBy, expanded, filters, selectedRowIds },
   } = useTable(
     {
       columns,
@@ -305,15 +298,40 @@ function Table({ columns, data, updateMyData, disablePageResetOnDataChange }) {
       // cell renderer!
       updateMyData,
       // We also need to pass this so the page doesn't change
-      // when we edit the data
-      disablePageResetOnDataChange,
+      // when we edit the data, undefined means using the default
+      autoResetPage: !skipPageReset,
     },
     useFilters,
-    useSortBy,
     useGroupBy,
+    useSortBy,
     useExpanded,
     usePagination,
-    useRowSelect
+    useRowSelect,
+    hooks => {
+      hooks.visibleColumns.push(columns => [
+        {
+          id: 'selection',
+          // Make this column a groupByBoundary. This ensures that groupBy columns
+          // are placed after it
+          groupByBoundary: true,
+          // The header can use the table's getToggleAllRowsSelectedProps method
+          // to render a checkbox
+          Header: ({ getToggleAllRowsSelectedProps }) => (
+            <div>
+              <input type="checkbox" {...getToggleAllRowsSelectedProps()} />
+            </div>
+          ),
+          // The cell can use the individual row's getToggleRowSelectedProps method
+          // to the render a checkbox
+          Cell: ({ row }) => (
+            <div>
+              <input type="checkbox" {...row.getToggleRowSelectedProps()} />
+            </div>
+          ),
+        },
+        ...columns,
+      ])
+    }
   )
 
   // Render the UI for your table
@@ -350,37 +368,36 @@ function Table({ columns, data, updateMyData, disablePageResetOnDataChange }) {
           ))}
         </thead>
         <tbody {...getTableBodyProps()}>
-          {page.map(
-            row => {
-              prepareRow(row);
-              return (
-                <tr {...row.getRowProps()}>
-                  {row.cells.map(cell => {
-                    return (
-                      <td {...cell.getCellProps()}>
-                        {cell.isGrouped ? (
-                          // If it's a grouped cell, add an expander and row count
-                          <>
-                            <span {...row.getExpandedToggleProps()}>
-                              {row.isExpanded ? '👇' : '👉'}
-                            </span>{' '}
-                            {cell.render('Cell', { editable: false })} (
-                            {row.subRows.length})
-                          </>
-                        ) : cell.isAggregated ? (
-                          // If the cell is aggregated, use the Aggregated
-                          // renderer for cell
-                          cell.render('Aggregated')
-                        ) : cell.isRepeatedValue ? null : ( // For cells with repeated values, render null
-                          // Otherwise, just render the regular cell
-                          cell.render('Cell', { editable: true })
-                        )}
-                      </td>
-                    )
-                  })}
-                </tr>
-              )}
-          )}
+          {page.map(row => {
+            prepareRow(row)
+            return (
+              <tr {...row.getRowProps()}>
+                {row.cells.map(cell => {
+                  return (
+                    <td {...cell.getCellProps()}>
+                      {cell.isGrouped ? (
+                        // If it's a grouped cell, add an expander and row count
+                        <>
+                          <span {...row.getToggleRowExpandedProps()}>
+                            {row.isExpanded ? '👇' : '👉'}
+                          </span>{' '}
+                          {cell.render('Cell', { editable: false })} (
+                          {row.subRows.length})
+                        </>
+                      ) : cell.isAggregated ? (
+                        // If the cell is aggregated, use the Aggregated
+                        // renderer for cell
+                        cell.render('Aggregated')
+                      ) : cell.isPlaceholder ? null : ( // For cells with repeated values, render null
+                        // Otherwise, just render the regular cell
+                        cell.render('Cell', { editable: true })
+                      )}
+                    </td>
+                  )
+                })}
+              </tr>
+            )
+          })}
         </tbody>
       </table>
       {/* 
@@ -441,9 +458,9 @@ function Table({ columns, data, updateMyData, disablePageResetOnDataChange }) {
               canNextPage,
               canPreviousPage,
               groupBy,
-              expanded,
+              expanded: expanded,
               filters,
-              selectedRowPaths,
+              selectedRowIds: selectedRowIds,
             },
             null,
             2
@@ -469,13 +486,13 @@ function filterGreaterThan(rows, id, filterValue) {
 filterGreaterThan.autoRemove = val => typeof val !== 'number'
 
 // This is a custom aggregator that
-// takes in an array of values and
+// takes in an array of leaf values and
 // returns the rounded median
-function roundedMedian(values) {
-  let min = values[0] || ''
-  let max = values[0] || ''
+function roundedMedian(leafValues) {
+  let min = leafValues[0] || 0
+  let max = leafValues[0] || 0
 
-  values.forEach(value => {
+  leafValues.forEach(value => {
     min = Math.min(min, value)
     max = Math.max(max, value)
   })
@@ -487,26 +504,6 @@ function App() {
   const columns = React.useMemo(
     () => [
       {
-        id: 'selection',
-        // Make this column a groupByBoundary. This ensures that groupBy columns
-        // are placed after it
-        groupByBoundary: true,
-        // The header can use the table's getToggleAllRowsSelectedProps method
-        // to render a checkbox
-        Header: ({ getToggleAllRowsSelectedProps }) => (
-          <div>
-            <input type="checkbox" {...getToggleAllRowsSelectedProps()} />
-          </div>
-        ),
-        // The cell can use the individual row's getToggleRowSelectedProps method
-        // to the render a checkbox
-        Cell: ({ row }) => (
-          <div>
-            <input type="checkbox" {...row.getToggleRowSelectedProps()} />
-          </div>
-        ),
-      },
-      {
         Header: 'Name',
         columns: [
           {
@@ -516,7 +513,7 @@ function App() {
             // count the total rows being aggregated,
             // then sum any of those counts if they are
             // aggregated further
-            aggregate: ['sum', 'count'],
+            aggregate: 'count',
             Aggregated: ({ cell: { value } }) => `${value} Names`,
           },
           {
@@ -528,7 +525,7 @@ function App() {
             // first count the UNIQUE values from the rows
             // being aggregated, then sum those counts if
             // they are aggregated further
-            aggregate: ['sum', 'uniqueCount'],
+            aggregate: 'uniqueCount',
             Aggregated: ({ cell: { value } }) => `${value} Unique Names`,
           },
         ],
@@ -583,9 +580,9 @@ function App() {
   const skipPageResetRef = React.useRef(false)
 
   // When our cell renderer calls updateMyData, we'll use
-  // the rowIndex, columnID and new value to update the
+  // the rowIndex, columnId and new value to update the
   // original data
-  const updateMyData = (rowIndex, columnID, value) => {
+  const updateMyData = (rowIndex, columnId, value) => {
     // We also turn on the flag to not reset the page
     skipPageResetRef.current = true
     setData(old =>
@@ -593,7 +590,7 @@ function App() {
         if (index === rowIndex) {
           return {
             ...row,
-            [columnID]: value,
+            [columnId]: value,
           }
         }
         return row
@@ -623,7 +620,7 @@ function App() {
         columns={columns}
         data={data}
         updateMyData={updateMyData}
-        disablePageResetOnDataChange={skipPageResetRef.current}
+        skipPageReset={skipPageResetRef.current}
       />
     </Styles>
   )

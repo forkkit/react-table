@@ -1,76 +1,120 @@
 import React from 'react'
-import PropTypes from 'prop-types'
 
 //
-import { addActions, actions } from '../actions'
-import { defaultState } from '../hooks/useTable'
-import { ensurePluginOrder, safeUseLayoutEffect, expandRows } from '../utils'
 
-defaultState.pageSize = 10
-defaultState.pageIndex = 0
+import {
+  actions,
+  ensurePluginOrder,
+  functionalUpdate,
+  useMountedLayoutEffect,
+  useGetLatest,
+} from '../publicUtils'
 
-addActions('pageChange', 'pageSizeChange')
+import { expandRows } from '../utils'
 
-const propTypes = {
-  // General
-  manualPagination: PropTypes.bool,
-  paginateExpandedRows: PropTypes.bool,
-}
+const pluginName = 'usePagination'
+
+// Actions
+actions.resetPage = 'resetPage'
+actions.gotoPage = 'gotoPage'
+actions.setPageSize = 'setPageSize'
 
 export const usePagination = hooks => {
-  hooks.useMain.push(useMain)
+  hooks.stateReducers.push(reducer)
+  hooks.useInstance.push(useInstance)
 }
 
-usePagination.pluginName = 'usePagination'
+usePagination.pluginName = pluginName
 
-function useMain(instance) {
-  PropTypes.checkPropTypes(propTypes, instance, 'property', 'usePagination')
+function reducer(state, action, previousState, instance) {
+  if (action.type === actions.init) {
+    return {
+      pageSize: 10,
+      pageIndex: 0,
+      ...state,
+    }
+  }
 
+  if (action.type === actions.resetPage) {
+    return {
+      ...state,
+      pageIndex: instance.initialState.pageIndex || 0,
+    }
+  }
+
+  if (action.type === actions.gotoPage) {
+    const { pageCount } = instance
+    const newPageIndex = functionalUpdate(action.pageIndex, state.pageIndex)
+
+    if (newPageIndex < 0 || newPageIndex > pageCount - 1) {
+      return state
+    }
+    return {
+      ...state,
+      pageIndex: newPageIndex,
+    }
+  }
+
+  if (action.type === actions.setPageSize) {
+    const { pageSize } = action
+    const topRowIndex = state.pageSize * state.pageIndex
+    const pageIndex = Math.floor(topRowIndex / pageSize)
+
+    return {
+      ...state,
+      pageIndex,
+      pageSize,
+    }
+  }
+}
+
+function useInstance(instance) {
   const {
-    data,
     rows,
-    manualPagination,
-    disablePageResetOnDataChange,
+    autoResetPage = true,
     manualExpandedKey = 'expanded',
-    debug,
     plugins,
     pageCount: userPageCount,
     paginateExpandedRows = true,
     expandSubRows = true,
-    state: { pageSize, pageIndex, filters, groupBy, sortBy, expanded },
-    setState,
+    state: {
+      pageSize,
+      pageIndex,
+      expanded,
+      globalFilter,
+      filters,
+      groupBy,
+      sortBy,
+    },
+    dispatch,
+    data,
+    manualPagination,
+    manualGlobalFilter,
+    manualFilters,
+    manualGroupBy,
+    manualSortBy,
   } = instance
 
   ensurePluginOrder(
     plugins,
-    ['useFilters', 'useGroupBy', 'useSortBy', 'useExpanded'],
-    'usePagination',
-    []
+    ['useGlobalFilter', 'useFilters', 'useGroupBy', 'useSortBy', 'useExpanded'],
+    'usePagination'
   )
 
-  const rowDep = manualPagination ? null : data
+  const getAutoResetPage = useGetLatest(autoResetPage)
 
-  const isPageIndexMountedRef = React.useRef()
-
-  // Bypass any effects from firing when this changes
-  const disablePageResetOnDataChangeRef = React.useRef()
-  disablePageResetOnDataChangeRef.current = disablePageResetOnDataChange
-
-  safeUseLayoutEffect(() => {
-    if (
-      isPageIndexMountedRef.current &&
-      !disablePageResetOnDataChangeRef.current
-    ) {
-      setState(
-        old => ({
-          ...old,
-          pageIndex: 0,
-        }),
-        actions.pageChange
-      )
+  useMountedLayoutEffect(() => {
+    if (getAutoResetPage()) {
+      dispatch({ type: actions.resetPage })
     }
-    isPageIndexMountedRef.current = true
-  }, [setState, rowDep, filters, groupBy, sortBy])
+  }, [
+    dispatch,
+    manualPagination ? null : data,
+    manualGlobalFilter ? null : globalFilter,
+    manualFilters ? null : filters,
+    manualGroupBy ? null : groupBy,
+    manualSortBy ? null : sortBy,
+  ])
 
   const pageCount = manualPagination
     ? userPageCount
@@ -87,9 +131,6 @@ function useMain(instance) {
     if (manualPagination) {
       page = rows
     } else {
-      if (process.env.NODE_ENV === 'development' && debug)
-        console.info('getPage')
-
       const pageStart = pageSize * pageIndex
       const pageEnd = pageStart + pageSize
 
@@ -102,7 +143,6 @@ function useMain(instance) {
 
     return expandRows(page, { manualExpandedKey, expanded, expandSubRows })
   }, [
-    debug,
     expandSubRows,
     expanded,
     manualExpandedKey,
@@ -117,23 +157,10 @@ function useMain(instance) {
   const canNextPage = pageCount === -1 || pageIndex < pageCount - 1
 
   const gotoPage = React.useCallback(
-    updater => {
-      if (process.env.NODE_ENV === 'development' && debug)
-        console.info('gotoPage')
-      return setState(old => {
-        const newPageIndex =
-          typeof updater === 'function' ? updater(old.pageIndex) : updater
-
-        if (newPageIndex < 0 || newPageIndex > pageCount - 1) {
-          return old
-        }
-        return {
-          ...old,
-          pageIndex: newPageIndex,
-        }
-      }, actions.pageChange)
+    pageIndex => {
+      dispatch({ type: actions.gotoPage, pageIndex })
     },
-    [debug, pageCount, setState]
+    [dispatch]
   )
 
   const previousPage = React.useCallback(() => {
@@ -146,21 +173,12 @@ function useMain(instance) {
 
   const setPageSize = React.useCallback(
     pageSize => {
-      setState(old => {
-        const topRowIndex = old.pageSize * old.pageIndex
-        const pageIndex = Math.floor(topRowIndex / pageSize)
-        return {
-          ...old,
-          pageIndex,
-          pageSize,
-        }
-      }, actions.pageSizeChange)
+      dispatch({ type: actions.setPageSize, pageSize })
     },
-    [setState]
+    [dispatch]
   )
 
-  return {
-    ...instance,
+  Object.assign(instance, {
     pageOptions,
     pageCount,
     page,
@@ -170,7 +188,5 @@ function useMain(instance) {
     previousPage,
     nextPage,
     setPageSize,
-    pageIndex,
-    pageSize,
-  }
+  })
 }

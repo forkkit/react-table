@@ -1,53 +1,41 @@
-import PropTypes from 'prop-types'
-
-const propTypes = {}
-
-export const useBlockLayout = hooks => {
-  hooks.useMain.push(useMain)
+const cellStyles = {
+  display: 'inline-block',
+  boxSizing: 'border-box',
 }
 
-useBlockLayout.pluginName = 'useBlockLayout'
-
-const useMain = instance => {
-  PropTypes.checkPropTypes(propTypes, instance, 'property', 'useBlockLayout')
-
-  const {
-    totalColumnsWidth,
-    hooks: { getRowProps, getHeaderGroupProps, getHeaderProps, getCellProps },
-  } = instance
-
-  const rowStyles = {
+const getRowStyles = (props, { instance }) => [
+  props,
+  {
     style: {
       display: 'flex',
-      width: `${totalColumnsWidth}px`,
+      width: `${instance.totalColumnsWidth}px`,
     },
-  }
+  },
+]
 
-  getRowProps.push(() => rowStyles)
-  getHeaderGroupProps.push(() => rowStyles)
+export const useBlockLayout = hooks => {
+  hooks.getRowProps.push(getRowStyles)
+  hooks.getHeaderGroupProps.push(getRowStyles)
 
-  const cellStyles = {
-    display: 'inline-block',
-    boxSizing: 'border-box',
-  }
-
-  getHeaderProps.push(header => {
-    return {
+  hooks.getHeaderProps.push((props, { column }) => [
+    props,
+    {
       style: {
         ...cellStyles,
-        width: `${header.totalWidth}px`,
+        width: `${column.totalWidth}px`,
       },
-    }
-  })
+    },
+  ])
 
-  getCellProps.push(cell => {
-    return {
+  hooks.getCellProps.push((props, { cell }) => [
+    props,
+    {
       style: {
         ...cellStyles,
         width: `${cell.column.totalWidth}px`,
       },
-    }
-  })
-
-  return instance
+    },
+  ])
 }
+
+useBlockLayout.pluginName = 'useBlockLayout'

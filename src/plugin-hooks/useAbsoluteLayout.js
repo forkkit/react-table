@@ -1,63 +1,44 @@
-import PropTypes from 'prop-types'
-
-const propTypes = {}
-
-export const useAbsoluteLayout = hooks => {
-  hooks.useMain.push(useMain)
+const cellStyles = {
+  position: 'absolute',
+  top: 0,
 }
 
-useAbsoluteLayout.pluginName = 'useAbsoluteLayout'
+export const useAbsoluteLayout = hooks => {
+  hooks.getTableBodyProps.push(getRowStyles)
+  hooks.getRowProps.push(getRowStyles)
+  hooks.getHeaderGroupProps.push(getRowStyles)
 
-const useMain = instance => {
-  PropTypes.checkPropTypes(propTypes, instance, 'property', 'useAbsoluteLayout')
-
-  const {
-    totalColumnsWidth,
-    hooks: {
-      getRowProps,
-      getTableBodyProps,
-      getHeaderGroupProps,
-      getHeaderProps,
-      getCellProps,
-    },
-  } = instance
-
-  const rowStyles = {
-    style: {
-      position: 'relative',
-      width: `${totalColumnsWidth}px`,
-    },
-  }
-
-  getTableBodyProps.push(() => rowStyles)
-  getRowProps.push(() => rowStyles)
-  getHeaderGroupProps.push(() => rowStyles)
-
-  // Calculating column/cells widths
-  const cellStyles = {
-    position: 'absolute',
-    top: 0,
-  }
-
-  getHeaderProps.push(header => {
-    return {
+  hooks.getHeaderProps.push((props, { column }) => [
+    props,
+    {
       style: {
         ...cellStyles,
-        left: `${header.totalLeft}px`,
-        width: `${header.totalWidth}px`,
+        left: `${column.totalLeft}px`,
+        width: `${column.totalWidth}px`,
       },
-    }
-  })
+    },
+  ])
 
-  getCellProps.push(cell => {
-    return {
+  hooks.getCellProps.push((props, { cell }) => [
+    props,
+    {
       style: {
         ...cellStyles,
         left: `${cell.column.totalLeft}px`,
         width: `${cell.column.totalWidth}px`,
       },
-    }
-  })
-
-  return instance
+    },
+  ])
 }
+
+useAbsoluteLayout.pluginName = 'useAbsoluteLayout'
+
+const getRowStyles = (props, { instance }) => [
+  props,
+  {
+    style: {
+      position: 'relative',
+      width: `${instance.totalColumnsWidth}px`,
+    },
+  },
+]

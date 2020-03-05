@@ -62,25 +62,22 @@ function Table({ columns: userColumns, data }) {
           ))}
         </thead>
         <tbody {...getTableBodyProps()}>
-          {rows.map(
-            (row, i) => {
-              prepareRow(row);
-              return (
-                <tr {...row.getRowProps()}>
-                  {row.cells.map(cell => {
-                    return (
-                      <td {...cell.getCellProps()}>{cell.render('Cell')}</td>
-                    )
-                  })}
-                </tr>
-              )}
-          )}
+          {rows.map((row, i) => {
+            prepareRow(row)
+            return (
+              <tr {...row.getRowProps()}>
+                {row.cells.map(cell => {
+                  return <td {...cell.getCellProps()}>{cell.render('Cell')}</td>
+                })}
+              </tr>
+            )
+          })}
         </tbody>
       </table>
       <br />
       <div>Showing the first 20 results of {rows.length} rows</div>
       <pre>
-        <code>{JSON.stringify({ expanded }, null, 2)}</code>
+        <code>{JSON.stringify({ expanded: expanded }, null, 2)}</code>
       </pre>
     </>
   )
@@ -91,14 +88,18 @@ function App() {
     () => [
       {
         // Build our expander column
-        Header: () => null, // No header, please
         id: 'expander', // Make sure it has an ID
+        Header: ({ getToggleAllRowsExpandedProps, isAllRowsExpanded }) => (
+          <span {...getToggleAllRowsExpandedProps()}>
+            {isAllRowsExpanded ? '👇' : '👉'}
+          </span>
+        ),
         Cell: ({ row }) =>
-          // Use the row.canExpand and row.getExpandedToggleProps prop getter
+          // Use the row.canExpand and row.getToggleRowExpandedProps prop getter
           // to build the toggle for expanding a row
           row.canExpand ? (
             <span
-              {...row.getExpandedToggleProps({
+              {...row.getToggleRowExpandedProps({
                 style: {
                   // We can even use the row.depth property
                   // and paddingLeft to indicate the depth

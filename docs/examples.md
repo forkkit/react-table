@@ -4,6 +4,9 @@
   - Basic
     - [Source](https://github.com/tannerlinsley/react-table/tree/master/examples/basic)
     - [Open in CodeSandbox](https://codesandbox.io/s/github/tannerlinsley/react-table/tree/master/examples/basic)
+  - Footers
+    - [Source](https://github.com/tannerlinsley/react-table/tree/master/examples/footers)
+    - [Open in CodeSandbox](https://codesandbox.io/s/github/tannerlinsley/react-table/tree/master/examples/footers)
   - Sorting
     - [Source](https://github.com/tannerlinsley/react-table/tree/master/examples/sorting)
     - [Open in CodeSandbox](https://codesandbox.io/s/github/tannerlinsley/react-table/tree/master/examples/sorting)
@@ -13,6 +16,9 @@
   - Grouping
     - [Source](https://github.com/tannerlinsley/react-table/tree/master/examples/grouping)
     - [Open in CodeSandbox](https://codesandbox.io/s/github/tannerlinsley/react-table/tree/master/examples/grouping)
+  - Grouping (Single Column)
+    - [Source](https://github.com/tannerlinsley/react-table/tree/master/examples/grouping-column)
+    - [Open in CodeSandbox](https://codesandbox.io/s/github/tannerlinsley/react-table/tree/master/examples/grouping-column)
   - Pagination
     - [Source](https://github.com/tannerlinsley/react-table/tree/master/examples/pagination)
     - [Open in CodeSandbox](https://codesandbox.io/s/github/tannerlinsley/react-table/tree/master/examples/pagination)
@@ -31,9 +37,24 @@
   - Column Ordering
     - [Source](https://github.com/tannerlinsley/react-table/tree/master/examples/column-ordering)
     - [Open in CodeSandbox](https://codesandbox.io/s/github/tannerlinsley/react-table/tree/master/examples/column-ordering)
+  - Column Hiding
+    - [Source](https://github.com/tannerlinsley/react-table/tree/master/examples/column-hiding)
+    - [Open in CodeSandbox](https://codesandbox.io/s/github/tannerlinsley/react-table/tree/master/examples/column-hiding)
   - Column Resizing
     - [Source](https://github.com/tannerlinsley/react-table/tree/master/examples/column-resizing)
     - [Open in CodeSandbox](https://codesandbox.io/s/github/tannerlinsley/react-table/tree/master/examples/column-resizing)
+  - Data-Driven Classes and Styles
+    - [Source](https://github.com/tannerlinsley/react-table/tree/master/examples/data-driven-classes-and-styles)
+    - [Open in CodeSandbox](https://codesandbox.io/s/github/tannerlinsley/react-table/tree/master/examples/data-driven-classes-and-styles)
+  - Row DnD
+    - [Source](https://github.com/tannerlinsley/react-table/tree/master/examples/row-dnd)
+    - [Open in CodeSandbox](https://codesandbox.io/s/github/tannerlinsley/react-table/tree/master/examples/row-dnd)
+  - Full Width Table (Table Elements with collapsible content)
+    - [Source](https://github.com/tannerlinsley/react-table/tree/master/examples/full-width-table)
+    - [Open in CodeSandbox](https://codesandbox.io/s/github/tannerlinsley/react-table/tree/master/examples/full-width-table)
+  - Full Width Resizable Table (via `useFlexLayout`)
+    - [Source](https://github.com/tannerlinsley/react-table/tree/master/examples/full-width-resizable-table)
+    - [Open in CodeSandbox](https://codesandbox.io/s/github/tannerlinsley/react-table/tree/master/examples/full-width-resizable-table)
 - **Complex**
   - The "Kitchen Sink"
     - [Source](https://github.com/tannerlinsley/react-table/tree/master/examples/kitchen-sink)
@@ -52,6 +73,9 @@
   - Material-UI
     - [Source](https://github.com/tannerlinsley/react-table/tree/master/examples/material-UI-components)
     - [Open in CodeSandbox](https://codesandbox.io/s/github/tannerlinsley/react-table/tree/master/examples/material-UI-components)
+  - Material-UI Enhanced Table
+    - [Source](https://github.com/tannerlinsley/react-table/tree/master/examples/material-UI-enhanced-table)
+    - [Open in CodeSandbox](https://codesandbox.io/s/github/tannerlinsley/react-table/tree/master/examples/material-UI-enhanced-table)
   - [ ] Styled-Components
   - [ ] CSS
   - [ ] Bootstrap

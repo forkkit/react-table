@@ -1,119 +1,163 @@
 import React from 'react'
-import PropTypes from 'prop-types'
 
-import { addActions, actions } from '../actions'
-import { defaultState } from '../hooks/useTable'
+import {
+  actions,
+  functionalUpdate,
+  useMountedLayoutEffect,
+  useGetLatest,
+} from '../publicUtils'
 
-defaultState.rowState = {}
+const defaultInitialRowStateAccessor = originalRow => ({})
+const defaultInitialCellStateAccessor = originalRow => ({})
 
-addActions('setRowState', 'setCellState')
-
-const propTypes = {
-  initialRowStateAccessor: PropTypes.func,
-}
+// Actions
+actions.setRowState = 'setRowState'
+actions.setCellState = 'setCellState'
+actions.resetRowState = 'resetRowState'
 
 export const useRowState = hooks => {
-  hooks.useMain.push(useMain)
+  hooks.stateReducers.push(reducer)
+  hooks.useInstance.push(useInstance)
+  hooks.prepareRow.push(prepareRow)
 }
 
 useRowState.pluginName = 'useRowState'
 
-function useMain(instance) {
-  PropTypes.checkPropTypes(propTypes, instance, 'property', 'useRowState')
-
+function reducer(state, action, previousState, instance) {
   const {
-    hooks,
-    rows,
-    initialRowStateAccessor,
-    state: { rowState },
-    setState,
+    initialRowStateAccessor = defaultInitialRowStateAccessor,
+    initialCellStateAccessor = defaultInitialCellStateAccessor,
+    rowsById,
   } = instance
 
-  const setRowState = React.useCallback(
-    (path, updater, action = actions.setRowState) => {
-      const pathKey = path.join('.')
-      return setState(old => {
-        return {
-          ...old,
-          rowState: {
-            ...old.rowState,
-            [pathKey]:
-              typeof updater === 'function'
-                ? updater(old.rowState[pathKey])
-                : updater,
+  if (action.type === actions.init) {
+    return {
+      rowState: {},
+      ...state,
+    }
+  }
+
+  if (action.type === actions.resetRowState) {
+    return {
+      ...state,
+      rowState: instance.initialState.rowState || {},
+    }
+  }
+
+  if (action.type === actions.setRowState) {
+    const { rowId, value } = action
+
+    const oldRowState =
+      typeof state.rowState[rowId] !== 'undefined'
+        ? state.rowState[rowId]
+        : initialRowStateAccessor(rowsById[rowId].original)
+
+    return {
+      ...state,
+      rowState: {
+        ...state.rowState,
+        [rowId]: functionalUpdate(value, oldRowState),
+      },
+    }
+  }
+
+  if (action.type === actions.setCellState) {
+    const { rowId, columnId, value } = action
+
+    const oldRowState =
+      typeof state.rowState[rowId] !== 'undefined'
+        ? state.rowState[rowId]
+        : initialRowStateAccessor(rowsById[rowId].original)
+
+    const oldCellState =
+      typeof oldRowState?.cellState?.[columnId] !== 'undefined'
+        ? oldRowState.cellState[columnId]
+        : initialCellStateAccessor(rowsById[rowId].original)
+
+    return {
+      ...state,
+      rowState: {
+        ...state.rowState,
+        [rowId]: {
+          ...oldRowState,
+          cellState: {
+            ...(oldRowState.cellState || {}),
+            [columnId]: functionalUpdate(value, oldCellState),
           },
-        }
-      }, action)
-    },
-    [setState]
+        },
+      },
+    }
+  }
+}
+
+function useInstance(instance) {
+  const { autoResetRowState = true, data, dispatch } = instance
+
+  const setRowState = React.useCallback(
+    (rowId, value) =>
+      dispatch({
+        type: actions.setRowState,
+        rowId,
+        value,
+      }),
+    [dispatch]
   )
 
   const setCellState = React.useCallback(
-    (rowPath, columnID, updater) => {
-      return setRowState(
-        rowPath,
-        old => {
-          return {
-            ...old,
-            cellState: {
-              ...old.cellState,
-              [columnID]:
-                typeof updater === 'function'
-                  ? updater(old.cellState[columnID])
-                  : updater,
-            },
-          }
-        },
-        actions.setCellState
-      )
-    },
-    [setRowState]
+    (rowId, columnId, value) =>
+      dispatch({
+        type: actions.setCellState,
+        rowId,
+        columnId,
+        value,
+      }),
+    [dispatch]
   )
 
-  const rowsMountedRef = React.useRef()
+  const getAutoResetRowState = useGetLatest(autoResetRowState)
 
-  // When data changes, reset row and cell state
-  React.useEffect(() => {
-    if (rowsMountedRef.current) {
-      setState(old => {
-        return {
-          ...old,
-          rowState: {},
-        }
-      }, actions.setRowState)
+  useMountedLayoutEffect(() => {
+    if (getAutoResetRowState()) {
+      dispatch({ type: actions.resetRowState })
     }
+  }, [data])
 
-    rowsMountedRef.current = true
-  }, [rows, setState])
-
-  hooks.prepareRow.push(row => {
-    const pathKey = row.path.join('.')
-
-    if (row.original) {
-      row.state =
-        (typeof rowState[pathKey] !== 'undefined'
-          ? rowState[pathKey]
-          : initialRowStateAccessor && initialRowStateAccessor(row)) || {}
-
-      row.setState = updater => {
-        return setRowState(row.path, updater)
-      }
-
-      row.cells.forEach(cell => {
-        cell.state = row.state.cellState || {}
-
-        cell.setState = updater => {
-          return setCellState(row.path, cell.column.id, updater)
-        }
-      })
-    }
-
-    return row
-  })
-
-  return {
-    ...instance,
+  Object.assign(instance, {
     setRowState,
     setCellState,
+  })
+}
+
+function prepareRow(row, { instance }) {
+  const {
+    initialRowStateAccessor = defaultInitialRowStateAccessor,
+    initialCellStateAccessor = defaultInitialCellStateAccessor,
+    state: { rowState },
+  } = instance
+
+  if (row.original) {
+    row.state =
+      typeof rowState[row.id] !== 'undefined'
+        ? rowState[row.id]
+        : initialRowStateAccessor(row.original)
+
+    row.setState = updater => {
+      return instance.setRowState(row.id, updater)
+    }
+
+    row.cells.forEach(cell => {
+      if (!row.state.cellState) {
+        row.state.cellState = {}
+      }
+
+      cell.state =
+        typeof row.state.cellState[cell.column.id] !== 'undefined'
+          ? row.state.cellState[cell.column.id]
+          : initialCellStateAccessor(row.original)
+
+      cell.setState = updater => {
+        return instance.setCellState(row.id, cell.column.id, updater)
+      }
+    })
   }
 }

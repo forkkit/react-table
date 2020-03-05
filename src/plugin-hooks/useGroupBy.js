@@ -1,280 +1,410 @@
-import { useMemo } from 'react'
-import PropTypes from 'prop-types'
+import React from 'react'
 
 import * as aggregations from '../aggregations'
-import { addActions, actions } from '../actions'
-import { defaultState } from '../hooks/useTable'
+
+import { getFirstDefined, flattenBy } from '../utils'
+
 import {
-  mergeProps,
-  applyPropHooks,
+  actions,
+  makePropGetter,
   defaultGroupByFn,
-  getFirstDefined,
   ensurePluginOrder,
-} from '../utils'
+  useMountedLayoutEffect,
+  useGetLatest,
+} from '../publicUtils'
 
-defaultState.groupBy = []
+const emptyArray = []
+const emptyObject = {}
 
-addActions('toggleGroupBy')
-
-const propTypes = {
-  // General
-  columns: PropTypes.arrayOf(
-    PropTypes.shape({
-      aggregate: PropTypes.oneOfType([
-        PropTypes.func,
-        PropTypes.string,
-        PropTypes.arrayOf(
-          PropTypes.oneOfType([PropTypes.func, PropTypes.string])
-        ),
-      ]),
-      disableGrouping: PropTypes.bool,
-      Aggregated: PropTypes.any,
-    })
-  ),
-  groupByFn: PropTypes.func,
-  manualGrouping: PropTypes.bool,
-  disableGrouping: PropTypes.bool,
-  aggregations: PropTypes.object,
-}
+// Actions
+actions.resetGroupBy = 'resetGroupBy'
+actions.toggleGroupBy = 'toggleGroupBy'
 
 export const useGroupBy = hooks => {
-  hooks.columnsBeforeHeaderGroups.push(columnsBeforeHeaderGroups)
-  hooks.columnsBeforeHeaderGroupsDeps.push((deps, instance) => {
-    deps.push(instance.state.groupBy)
-    return deps
-  })
-  hooks.useMain.push(useMain)
+  hooks.getGroupByToggleProps = [defaultGetGroupByToggleProps]
+  hooks.stateReducers.push(reducer)
+  hooks.visibleColumnsDeps.push((deps, { instance }) => [
+    ...deps,
+    instance.state.groupBy,
+  ])
+  hooks.visibleColumns.push(visibleColumns)
+  hooks.useInstance.push(useInstance)
+  hooks.prepareRow.push(prepareRow)
 }
 
 useGroupBy.pluginName = 'useGroupBy'
 
-function columnsBeforeHeaderGroups(flatColumns, { state: { groupBy } }) {
+const defaultGetGroupByToggleProps = (props, { header }) => [
+  props,
+  {
+    onClick: header.canGroupBy
+      ? e => {
+          e.persist()
+          header.toggleGroupBy()
+        }
+      : undefined,
+    style: {
+      cursor: header.canGroupBy ? 'pointer' : undefined,
+    },
+    title: 'Toggle GroupBy',
+  },
+]
+
+// Reducer
+function reducer(state, action, previousState, instance) {
+  if (action.type === actions.init) {
+    return {
+      groupBy: [],
+      ...state,
+    }
+  }
+
+  if (action.type === actions.resetGroupBy) {
+    return {
+      ...state,
+      groupBy: instance.initialState.groupBy || [],
+    }
+  }
+
+  if (action.type === actions.toggleGroupBy) {
+    const { columnId, value: setGroupBy } = action
+
+    const resolvedGroupBy =
+      typeof setGroupBy !== 'undefined'
+        ? setGroupBy
+        : !state.groupBy.includes(columnId)
+
+    if (resolvedGroupBy) {
+      return {
+        ...state,
+        groupBy: [...state.groupBy, columnId],
+      }
+    }
+
+    return {
+      ...state,
+      groupBy: state.groupBy.filter(d => d !== columnId),
+    }
+  }
+}
+
+function visibleColumns(
+  columns,
+  {
+    instance: {
+      state: { groupBy },
+    },
+  }
+) {
   // Sort grouped columns to the start of the column list
   // before the headers are built
 
-  const groupByColumns = groupBy.map(g => flatColumns.find(col => col.id === g))
-  const nonGroupByColumns = flatColumns.filter(col => !groupBy.includes(col.id))
+  const groupByColumns = groupBy
+    .map(g => columns.find(col => col.id === g))
+    .filter(Boolean)
 
-  // If a groupByBoundary column is found, place the groupBy's after it
-  const groupByBoundaryColumnIndex =
-    flatColumns.findIndex(column => column.groupByBoundary) + 1
+  const nonGroupByColumns = columns.filter(col => !groupBy.includes(col.id))
 
-  return [
-    ...nonGroupByColumns.slice(0, groupByBoundaryColumnIndex),
-    ...groupByColumns,
-    ...nonGroupByColumns.slice(groupByBoundaryColumnIndex),
-  ]
+  columns = [...groupByColumns, ...nonGroupByColumns]
+
+  columns.forEach(column => {
+    column.isGrouped = groupBy.includes(column.id)
+    column.groupedIndex = groupBy.indexOf(column.id)
+  })
+
+  return columns
 }
 
-function useMain(instance) {
-  PropTypes.checkPropTypes(propTypes, instance, 'property', 'useGroupBy')
+const defaultUserAggregations = {}
 
+function useInstance(instance) {
   const {
-    debug,
+    data,
     rows,
-    flatColumns,
+    flatRows,
+    rowsById,
+    allColumns,
     flatHeaders,
     groupByFn = defaultGroupByFn,
     manualGroupBy,
-    disableGrouping,
-    aggregations: userAggregations = {},
-    hooks,
+    aggregations: userAggregations = defaultUserAggregations,
     plugins,
     state: { groupBy },
-    setState,
+    dispatch,
+    autoResetGroupBy = true,
+    disableGroupBy,
+    defaultCanGroupBy,
+    getHooks,
   } = instance
 
-  ensurePluginOrder(plugins, [], 'useGroupBy', ['useSortBy', 'useExpanded'])
+  ensurePluginOrder(plugins, ['useFilters'], 'useGroupBy')
 
-  flatColumns.forEach(column => {
-    const { id, accessor, disableGrouping: columnDisableGrouping } = column
-    column.isGrouped = groupBy.includes(id)
-    column.groupedIndex = groupBy.indexOf(id)
+  const getInstance = useGetLatest(instance)
+
+  allColumns.forEach(column => {
+    const {
+      accessor,
+      defaultGroupBy: defaultColumnGroupBy,
+      disableGroupBy: columnDisableGroupBy,
+    } = column
 
     column.canGroupBy = accessor
       ? getFirstDefined(
-          columnDisableGrouping === true ? false : undefined,
-          disableGrouping === true ? false : undefined,
+          column.canGroupBy,
+          columnDisableGroupBy === true ? false : undefined,
+          disableGroupBy === true ? false : undefined,
           true
         )
-      : false
+      : getFirstDefined(
+          column.canGroupBy,
+          defaultColumnGroupBy,
+          defaultCanGroupBy,
+          false
+        )
 
     if (column.canGroupBy) {
-      column.toggleGroupBy = () => toggleGroupBy(column.id)
+      column.toggleGroupBy = () => instance.toggleGroupBy(column.id)
     }
 
     column.Aggregated = column.Aggregated || column.Cell
   })
 
-  const toggleGroupBy = (id, toggle) => {
-    return setState(old => {
-      const resolvedToggle =
-        typeof toggle !== 'undefined' ? toggle : !groupBy.includes(id)
-      if (resolvedToggle) {
-        return {
-          ...old,
-          groupBy: [...groupBy, id],
-        }
-      }
-      return {
-        ...old,
-        groupBy: groupBy.filter(d => d !== id),
-      }
-    }, actions.toggleGroupBy)
-  }
-
-  hooks.getGroupByToggleProps = []
+  const toggleGroupBy = React.useCallback(
+    (columnId, value) => {
+      dispatch({ type: actions.toggleGroupBy, columnId, value })
+    },
+    [dispatch]
+  )
 
   flatHeaders.forEach(header => {
-    const { canGroupBy } = header
-    header.getGroupByToggleProps = props => {
-      return mergeProps(
-        {
-          onClick: canGroupBy
-            ? e => {
-                e.persist()
-                header.toggleGroupBy()
-              }
-            : undefined,
-          style: {
-            cursor: canGroupBy ? 'pointer' : undefined,
-          },
-          title: 'Toggle GroupBy',
-        },
-        applyPropHooks(instance.hooks.getGroupByToggleProps, header, instance),
-        props
-      )
-    }
+    header.getGroupByToggleProps = makePropGetter(
+      getHooks().getGroupByToggleProps,
+      { instance: getInstance(), header }
+    )
   })
 
-  hooks.prepareRow.push(row => {
-    row.cells.forEach(cell => {
-      // Grouped cells are in the groupBy and the pivot cell for the row
-      cell.isGrouped = cell.column.isGrouped && cell.column.id === row.groupByID
-      // Repeated cells are any columns in the groupBy that are not grouped
-      cell.isRepeatedValue = !cell.isGrouped && cell.column.isGrouped
-      // Aggregated cells are not grouped, not repeated, but still have subRows
-      cell.isAggregated =
-        !cell.isGrouped && !cell.isRepeatedValue && row.canExpand
-    })
-    return row
-  })
-
-  const groupedRows = useMemo(() => {
+  const [
+    groupedRows,
+    groupedFlatRows,
+    groupedRowsById,
+    onlyGroupedFlatRows,
+    onlyGroupedRowsById,
+    nonGroupedFlatRows,
+    nonGroupedRowsById,
+  ] = React.useMemo(() => {
     if (manualGroupBy || !groupBy.length) {
-      return rows
+      return [
+        rows,
+        flatRows,
+        rowsById,
+        emptyArray,
+        emptyObject,
+        flatRows,
+        rowsById,
+      ]
     }
 
-    if (process.env.NODE_ENV === 'development' && debug)
-      console.info('getGroupedRows')
-    // Find the columns that can or are aggregating
+    // Ensure that the list of filtered columns exist
+    const existingGroupBy = groupBy.filter(g =>
+      allColumns.find(col => col.id === g)
+    )
 
+    // Find the columns that can or are aggregating
     // Uses each column to aggregate rows into a single value
-    const aggregateRowsToValues = (rows, isSourceRows) => {
+    const aggregateRowsToValues = (leafRows, groupedRows, depth) => {
       const values = {}
 
-      flatColumns.forEach(column => {
+      allColumns.forEach(column => {
         // Don't aggregate columns that are in the groupBy
-        if (groupBy.includes(column.id)) {
-          values[column.id] = rows[0] ? rows[0].values[column.id] : null
+        if (existingGroupBy.includes(column.id)) {
+          values[column.id] = groupedRows[0]
+            ? groupedRows[0].values[column.id]
+            : null
           return
         }
 
-        const columnValues = rows.map(d => d.values[column.id])
+        // Get the columnValues to aggregate
+        const groupedValues = groupedRows.map(row => row.values[column.id])
 
-        let aggregator = column.aggregate
+        // Get the columnValues to aggregate
+        const leafValues = leafRows.map(row => {
+          let columnValue = row.values[column.id]
 
-        if (Array.isArray(aggregator)) {
-          if (aggregator.length !== 2) {
-            console.info({ column })
-            throw new Error(
-              `React Table: Complex aggregators must have 2 values, eg. aggregate: ['sum', 'count']. More info above...`
-            )
+          if (!depth && column.aggregatedValue) {
+            const aggregateValueFn =
+              typeof column.aggregateValue === 'function'
+                ? column.aggregateValue
+                : userAggregations[column.aggregateValue] ||
+                  aggregations[column.aggregateValue]
+
+            if (!aggregateValueFn) {
+              console.info({ column })
+              throw new Error(
+                `React Table: Invalid column.aggregateValue option for column listed above`
+              )
+            }
+
+            columnValue = aggregateValueFn(columnValue, row, column)
           }
-          if (isSourceRows) {
-            aggregator = aggregator[1]
-          } else {
-            aggregator = aggregator[0]
-          }
-        }
+          return columnValue
+        })
 
+        // Aggregate the values
         let aggregateFn =
-          typeof aggregator === 'function'
-            ? aggregator
-            : userAggregations[aggregator] || aggregations[aggregator]
+          typeof column.aggregate === 'function'
+            ? column.aggregate
+            : userAggregations[column.aggregate] ||
+              aggregations[column.aggregate]
 
         if (aggregateFn) {
-          values[column.id] = aggregateFn(columnValues, rows)
-        } else if (aggregator) {
+          values[column.id] = aggregateFn(leafValues, groupedValues)
+        } else if (column.aggregate) {
           console.info({ column })
           throw new Error(
-            `React Table: Invalid aggregate option for column listed above`
+            `React Table: Invalid column.aggregate option for column listed above`
           )
         } else {
           values[column.id] = null
         }
       })
+
       return values
     }
 
+    let groupedFlatRows = []
+    const groupedRowsById = {}
+    const onlyGroupedFlatRows = []
+    const onlyGroupedRowsById = {}
+    const nonGroupedFlatRows = []
+    const nonGroupedRowsById = {}
+
     // Recursively group the data
-    const groupRecursively = (rows, depth = 0, parentPath = []) => {
+    const groupUpRecursively = (rows, depth = 0, parentId) => {
       // This is the last level, just return the rows
-      if (depth >= groupBy.length) {
+      if (depth === existingGroupBy.length) {
         return rows
       }
 
-      const columnID = groupBy[depth]
+      const columnId = existingGroupBy[depth]
 
       // Group the rows together for this level
-      let groupedRows = groupByFn(rows, columnID)
+      let rowGroupsMap = groupByFn(rows, columnId)
 
-      // Recurse to sub rows before aggregation
-      groupedRows = Object.entries(groupedRows).map(
-        ([groupByVal, subRows], index) => {
-          const path = [...parentPath, `${columnID}:${groupByVal}`]
+      // Peform aggregations for each group
+      const aggregatedGroupedRows = Object.entries(rowGroupsMap).map(
+        ([groupByVal, groupedRows], index) => {
+          let id = `${columnId}:${groupByVal}`
+          id = parentId ? `${parentId}>${id}` : id
 
-          subRows = groupRecursively(subRows, depth + 1, path)
+          // First, Recurse to group sub rows before aggregation
+          const subRows = groupUpRecursively(groupedRows, depth + 1, id)
 
-          const values = aggregateRowsToValues(
-            subRows,
-            depth + 1 >= groupBy.length
-          )
+          // Flatten the leaf rows of the rows in this group
+          const leafRows = depth
+            ? flattenBy(groupedRows, 'leafRows')
+            : groupedRows
+
+          const values = aggregateRowsToValues(leafRows, groupedRows, depth)
 
           const row = {
-            isAggregated: true,
-            groupByID: columnID,
+            id,
+            isGrouped: true,
+            groupByID: columnId,
             groupByVal,
             values,
             subRows,
+            leafRows,
             depth,
             index,
-            path,
           }
+
+          subRows.forEach(subRow => {
+            groupedFlatRows.push(subRow)
+            groupedRowsById[subRow.id] = subRow
+            if (subRow.isGrouped) {
+              onlyGroupedFlatRows.push(subRow)
+              onlyGroupedRowsById[subRow.id] = subRow
+            } else {
+              nonGroupedFlatRows.push(subRow)
+              nonGroupedRowsById[subRow.id] = subRow
+            }
+          })
 
           return row
         }
       )
 
-      return groupedRows
+      return aggregatedGroupedRows
     }
 
+    const groupedRows = groupUpRecursively(rows)
+
+    groupedRows.forEach(subRow => {
+      groupedFlatRows.push(subRow)
+      groupedRowsById[subRow.id] = subRow
+      if (subRow.isGrouped) {
+        onlyGroupedFlatRows.push(subRow)
+        onlyGroupedRowsById[subRow.id] = subRow
+      } else {
+        nonGroupedFlatRows.push(subRow)
+        nonGroupedRowsById[subRow.id] = subRow
+      }
+    })
+
     // Assign the new data
-    return groupRecursively(rows)
+    return [
+      groupedRows,
+      groupedFlatRows,
+      groupedRowsById,
+      onlyGroupedFlatRows,
+      onlyGroupedRowsById,
+      nonGroupedFlatRows,
+      nonGroupedRowsById,
+    ]
   }, [
     manualGroupBy,
     groupBy,
-    debug,
     rows,
-    flatColumns,
+    flatRows,
+    rowsById,
+    allColumns,
     userAggregations,
     groupByFn,
   ])
 
-  return {
-    ...instance,
-    toggleGroupBy,
-    rows: groupedRows,
+  const getAutoResetGroupBy = useGetLatest(autoResetGroupBy)
+
+  useMountedLayoutEffect(() => {
+    if (getAutoResetGroupBy()) {
+      dispatch({ type: actions.resetGroupBy })
+    }
+  }, [dispatch, manualGroupBy ? null : data])
+
+  Object.assign(instance, {
     preGroupedRows: rows,
-  }
+    preGroupedFlatRow: flatRows,
+    preGroupedRowsById: rowsById,
+    groupedRows,
+    groupedFlatRows,
+    groupedRowsById,
+    onlyGroupedFlatRows,
+    onlyGroupedRowsById,
+    nonGroupedFlatRows,
+    nonGroupedRowsById,
+    rows: groupedRows,
+    flatRows: groupedFlatRows,
+    rowsById: groupedRowsById,
+    toggleGroupBy,
+  })
+}
+
+function prepareRow(row) {
+  row.allCells.forEach(cell => {
+    // Grouped cells are in the groupBy and the pivot cell for the row
+    cell.isGrouped = cell.column.isGrouped && cell.column.id === row.groupByID
+    // Placeholder cells are any columns in the groupBy that are not grouped
+    cell.isPlaceholder = !cell.isGrouped && cell.column.isGrouped
+    // Aggregated cells are not grouped, not repeated, but still have subRows
+    cell.isAggregated = !cell.isGrouped && !cell.isPlaceholder && row.canExpand
+  })
 }
